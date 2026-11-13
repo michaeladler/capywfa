@@ -16,11 +16,14 @@ import os
 import difflib
 import filecmp
 import hashlib
+import json
 import shutil
 import glob
+import tomllib
 import requests
 import argparse
 from datetime import datetime
+from packageurl import PackageURL
 from sw360 import SW360, SW360Error
 from capywfa.cdx_support import get_cdx, set_cdx, resolve_local_source_url
 from capycli.common.capycli_bom_support import CaPyCliBom, CycloneDxSupport
@@ -148,9 +151,22 @@ def split_verifiers(args):
     return [v for arg in args for v in arg.split()]
 
 
+def load_verified_sources(path):
+    if path is None:
+        return set()
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+    attachments = data.get("attachment", [])
+    if set(data) - {"attachment"} or not isinstance(attachments, list) or not all(
+            isinstance(a, dict) and isinstance(a.get("purl"), str)
+            and isinstance(a.get("sha1"), str) for a in attachments):
+        raise ValueError("expected only [[attachment]] tables with string purl and sha1")
+    return {(str(PackageURL.from_string(a["purl"])), a["sha1"]) for a in attachments}
+
+
 def verify_sources(bom, sw360_url, sw360_token, trusted_verifiers,
                    sbom_dir=None, pkg_dir=None, set_accepted=True,
-                   max_diff_lines=MAX_DIFF_LINES):
+                   max_diff_lines=MAX_DIFF_LINES, verified_sources=frozenset()):
     if max_diff_lines < 0:
         raise ValueError("max_diff_lines must be non-negative")
 
@@ -194,6 +210,14 @@ def verify_sources(bom, sw360_url, sw360_token, trusted_verifiers,
             info = sw360.get_attachment_by_url(ata["_links"]["self"]["href"])
             if info.get("checkStatus", "") != "REJECTED":
                 sources.append(info)
+
+        set_cdx(item, "Sw360SourceAttachments",
+                json.dumps([[s['filename'], s['sha1']] for s in sources]))
+        if sources and all((str(item.purl), s["sha1"]) in verified_sources for s in sources):
+            set_cdx(item, "Sw360SourceFileCheck", "passed")
+            print("OK:", item.name, item.version, "release", sw360id,
+                  "manually verified (see --verified-sources)")
+            continue
 
         if len(sources) != 1:
             print("ERROR:", len(sources), "sources found")
@@ -304,9 +328,15 @@ def main():
                              f"default: {MAX_DIFF_LINES})")
     parser.add_argument("--no-set-accepted", action="store_true",
                         help="Don't set checkStatus to ACCEPTED in SW360 for verified sources")
+    parser.add_argument("--verified-sources", metavar="FILE",
+                        help="TOML file with manually verified SW360 source attachments")
     args = parser.parse_args()
     if args.max_diff_lines < 0:
         parser.error("--max-diff-lines must be non-negative")
+    try:
+        verified_sources = load_verified_sources(args.verified_sources)
+    except (OSError, ValueError) as err:
+        parser.error(f"--verified-sources: {err}")
 
     bom = CaPyCliBom.read_sbom(args.input)
 
@@ -318,7 +348,8 @@ def main():
                    sbom_dir=os.path.dirname(os.path.abspath(args.input)),
                    pkg_dir=args.sources,
                    max_diff_lines=args.max_diff_lines,
-                   set_accepted=not args.no_set_accepted)
+                   set_accepted=not args.no_set_accepted,
+                   verified_sources=verified_sources)
 
 
 if __name__ == "__main__":

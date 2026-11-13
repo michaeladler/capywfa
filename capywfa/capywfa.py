@@ -7,6 +7,7 @@
 # SPDX-License-Identifier: MIT
 
 import argparse
+import json
 import textwrap
 import sys
 import os
@@ -19,7 +20,7 @@ from capycli.common.capycli_bom_support import (CaPyCliBom, CycloneDxSupport,
                                                 SbomWriter)
 from capycli.common.json_support import write_json_to_file
 from capycli.common.map_result import MapResult
-from capywfa.verify_sources import MAX_DIFF_LINES, verify_sources
+from capywfa.verify_sources import MAX_DIFF_LINES, verify_sources, load_verified_sources
 from capycli.bom.create_components import BomCreateComponents
 from capycli.project.create_project import CreateProject
 from cyclonedx.model import ExternalReferenceType, HashAlgorithm
@@ -340,6 +341,12 @@ def main():
     parser.add_argument(
         "--max-diff-lines", type=int, default=MAX_DIFF_LINES, metavar="N",
         help=f"Maximum unified diff lines to show (0 disables diffs; default: {MAX_DIFF_LINES})")
+    parser.add_argument(
+        "--verified-sources", metavar="FILE", help=textwrap.dedent(
+            """TOML file with one [[attachment]] table per SW360 source attachment
+            which was checked manually and is equivalent to the local source.
+            Keys: purl, sha1 (required), filename, comment (optional). BOM items
+            are treated as verified if all their source attachments are listed."""))
 
     args = parser.parse_args()
     if args.max_diff_lines < 0:
@@ -350,6 +357,11 @@ def main():
     if not os.path.exists(args.input):
         print("ERROR: inputfile not found:", args.input)
         sys.exit(1)
+
+    try:
+        verified_sources = load_verified_sources(args.verified_sources)
+    except (OSError, ValueError) as err:
+        parser.error(f"--verified-sources: {err}")
 
     sbom_dir = os.path.dirname(os.path.abspath(args.input))
     if os.path.abspath(args.sources) != sbom_dir:
@@ -432,7 +444,8 @@ def main():
                              trusted_verifiers=args.trusted_verifiers,
                              sbom_dir=None, pkg_dir=None,
                              max_diff_lines=args.max_diff_lines,
-                             set_accepted=not args.no_set_accepted)
+                             set_accepted=not args.no_set_accepted,
+                             verified_sources=verified_sources)
         write_bom(bom, filename+"-2-sourceverify-quick"+extension)
 
     print()
@@ -510,7 +523,8 @@ def main():
                                  sbom_dir=sbom_dir, pkg_dir=args.sources,
                                  trusted_verifiers=args.trusted_verifiers,
                                  max_diff_lines=args.max_diff_lines,
-                                 set_accepted=not args.no_set_accepted)
+                                 set_accepted=not args.no_set_accepted,
+                                 verified_sources=verified_sources)
             outputbom = write_bom(bom, filename+"-5-sourceverify"+extension)
 
     print()
@@ -608,14 +622,21 @@ def main():
         print(len(todo_unchecked), "SW360 sources couldn't be verified.")
         print(textwrap.dedent("""
             Please check the differences in `verify` folder and set attachment
-            to DENIED or ACCEPTED in SW360, then re-run.
+            to DENIED or ACCEPTED in SW360, or add the attachments to the
+            --verified-sources file if they are equivalent, then re-run.
             """))
         print("BOM items with attachment differences:")
         for item in todo_unchecked:
-            print("-", item.name, item.version,
+            print("-", item.name, item.version, f"({item.purl})",
                   args.url + "/group/guest/components/-/component/release/"
                   "detailRelease/"
                   + get_cdx(item, "Sw360Id")+"#/tab-Attachments")
+            for fname, sha1 in json.loads(get_cdx(item, "Sw360SourceAttachments", "[]")):
+                print("    [[attachment]]")
+                print("    purl =", json.dumps(str(item.purl)))
+                print("    filename =", json.dumps(fname))
+                print("    sha1 =", json.dumps(sha1))
+                print('    comment = ""')
         print()
         problem = True
 

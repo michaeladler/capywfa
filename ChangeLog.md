@@ -27,6 +27,15 @@ SPDX-License-Identifier: MIT
   are extracted with tarfile's `data` filter on all Python versions (3.11-3.13
   previously used the unfiltered default). Archives with symlinks pointing
   outside themselves currently abort the whole verification run.
+* capywfa: new `--verified-sources FILE` option takes a TOML file with one
+  `[[attachment]]` table per SW360 source attachment. Each table has `purl` and
+  `sha1` (matched against the SW360 attachment), plus optional `filename` and
+  `comment`. Listed attachments are marked as verified even if they differ from
+  the local source, e.g. after a manual check found them equivalent. A release
+  is only verified if all its source attachments are listed. The summary prints
+  a ready-to-paste `[[attachment]]` block per attachment of unverified items, so
+  they can be copied into this file. The standalone `verify_sources` tool takes
+  the same option.
 
 ## 0.12.1
 

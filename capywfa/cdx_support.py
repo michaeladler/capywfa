@@ -14,6 +14,7 @@ legacy_to_cdx_prop = {
     "Sw360Id": CycloneDxSupport.CDX_PROP_SW360ID,
     "Categories": CycloneDxSupport.CDX_PROP_CATEGORIES,
     "Sw360SourceFileCheck": "capywfa:Sw360SourceFileCheck",
+    "Sw360SourceAttachments": "capywfa:Sw360SourceAttachments",
     "SourceFileDownload": "capywfa:SourceFileDownload",
     "SourceFileType": CycloneDxSupport.CDX_PROP_SRC_FILE_TYPE,
     "SourceFileComment": CycloneDxSupport.CDX_PROP_SRC_FILE_COMMENT,
