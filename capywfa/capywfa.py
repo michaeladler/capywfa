@@ -19,7 +19,7 @@ from capycli.common.capycli_bom_support import (CaPyCliBom, CycloneDxSupport,
                                                 SbomWriter)
 from capycli.common.json_support import write_json_to_file
 from capycli.common.map_result import MapResult
-from capywfa.verify_sources import verify_sources
+from capywfa.verify_sources import verify_sources, load_accepted_purls
 from capycli.bom.create_components import BomCreateComponents
 from capycli.project.create_project import CreateProject
 from cyclonedx.model import ExternalReferenceType, HashAlgorithm
@@ -337,6 +337,11 @@ def main():
             """Don't set checkStatus to ACCEPTED in SW360 for verified sources.
             Avoids triggering moderation requests; the source is still marked
             as verified locally."""))
+    parser.add_argument(
+        "--accepted-sources", metavar="FILE", help=textwrap.dedent(
+            """JSON list of {"purl": ..., "comment": ...} objects for source
+            attachments which were checked manually and are equivalent to the
+            local sources. Matching BOM items are treated as verified."""))
 
     args = parser.parse_args()
     if not args.token:
@@ -345,6 +350,8 @@ def main():
     if not os.path.exists(args.input):
         print("ERROR: inputfile not found:", args.input)
         sys.exit(1)
+
+    accepted_purls = load_accepted_purls(args.accepted_sources)
 
     sbom_dir = os.path.dirname(os.path.abspath(args.input))
     if os.path.abspath(args.sources) != sbom_dir:
@@ -426,7 +433,8 @@ def main():
         bom = verify_sources(bom, args.url, args.token,
                              trusted_verifiers=args.trusted_verifiers,
                              sbom_dir=None, pkg_dir=None,
-                             set_accepted=not args.no_set_accepted)
+                             set_accepted=not args.no_set_accepted,
+                             accepted_purls=accepted_purls)
         write_bom(bom, filename+"-2-sourceverify-quick"+extension)
 
     print()
@@ -503,7 +511,8 @@ def main():
             bom = verify_sources(bom, args.url, args.token,
                                  sbom_dir=sbom_dir, pkg_dir=args.sources,
                                  trusted_verifiers=args.trusted_verifiers,
-                                 set_accepted=not args.no_set_accepted)
+                                 set_accepted=not args.no_set_accepted,
+                                 accepted_purls=accepted_purls)
             outputbom = write_bom(bom, filename+"-5-sourceverify"+extension)
 
     print()
@@ -601,7 +610,8 @@ def main():
         print(len(todo_unchecked), "SW360 sources couldn't be verified.")
         print(textwrap.dedent("""
             Please check the differences in `verify` folder and set attachment
-            to DENIED or ACCEPTED in SW360, then re-run.
+            to DENIED or ACCEPTED in SW360, or add the PURL to the
+            --accepted-sources file if they are equivalent, then re-run.
             """))
         print("BOM items with attachment differences:")
         for item in todo_unchecked:

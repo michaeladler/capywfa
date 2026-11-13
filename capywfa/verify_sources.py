@@ -16,11 +16,13 @@ import os
 import difflib
 import filecmp
 import hashlib
+import json
 import shutil
 import glob
 import requests
 import argparse
 from datetime import datetime
+from packageurl import PackageURL
 from sw360 import SW360, SW360Error
 from capywfa.cdx_support import get_cdx, set_cdx, resolve_local_source_url
 from capycli.common.capycli_bom_support import CaPyCliBom, CycloneDxSupport
@@ -127,8 +129,16 @@ def split_verifiers(args):
     return [v for arg in args for v in arg.split()]
 
 
+def load_accepted_purls(path):
+    if path is None:
+        return set()
+    with open(path) as f:
+        return {str(PackageURL.from_string(entry["purl"])) for entry in json.load(f)}
+
+
 def verify_sources(bom, sw360_url, sw360_token, trusted_verifiers,
-                   sbom_dir=None, pkg_dir=None, set_accepted=True):
+                   sbom_dir=None, pkg_dir=None, set_accepted=True,
+                   accepted_purls=frozenset()):
     trusted_verifiers = split_verifiers(trusted_verifiers)
     if len(sw360_token) > 100:
         oauth2 = True
@@ -191,6 +201,12 @@ def verify_sources(bom, sw360_url, sw360_token, trusted_verifiers,
             set_cdx(item, "Sw360SourceFileCheck", "passed")
             print("OK: Trusted verifier", checkedby,
                   "approved on", sources[0].get('checkedOn'))
+            continue
+
+        # matched by purl only, so a re-uploaded attachment stays accepted
+        if str(item.purl) in accepted_purls:
+            set_cdx(item, "Sw360SourceFileCheck", "passed")
+            print("OK: manually accepted (see --accepted-sources)")
             continue
 
         if get_cdx(item, "SourceFileDownload") == "failed":

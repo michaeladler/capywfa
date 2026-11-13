@@ -4,7 +4,8 @@
 # SPDX-License-Identifier: MIT
 
 from capywfa.verify_sources import (
-    verify_sources, split_verifiers, compare_trees, compare_files, unpack)
+    verify_sources, split_verifiers, compare_trees, compare_files, unpack,
+    load_accepted_purls)
 from capywfa.cdx_support import set_cdx, get_cdx, remove_cdx
 from cyclonedx.model.bom import Bom
 from cyclonedx.model.component import Component, ComponentType
@@ -12,6 +13,7 @@ from cyclonedx.model import ExternalReference, ExternalReferenceType, HashType, 
 from capycli.common.capycli_bom_support import CaPyCliBom
 from packageurl import PackageURL
 import vcr
+import json
 import os
 import shutil
 import tarfile
@@ -143,6 +145,22 @@ def test_verify_sources_no_sw360id(capsys):
     bom = verify_sources(bom, "https://sw360.example.com", "mytoken", [], pkg_dir="pkgs")
     captured = capsys.readouterr()
     assert "no sw360id in BOM" in captured.out
+
+
+@vcr_test("base.yaml")
+def test_verify_sources_accepted_purl(capsys, tmp_path):
+    """Purl from accepted file (unencoded '+') matches BOM item without any local source."""
+    accepted = tmp_path / "accepted.json"
+    accepted.write_text(json.dumps(
+        [{"purl": "pkg:deb/debian/efibootguard@0.13+cip.debian?arch=source",
+          "comment": "checked by hand"}]))
+    bom = create_test_bom()
+    with vcr_test("base.yaml") as cassette:
+        bom = verify_sources(bom, "https://sw360.example.com", "mytoken", [],
+                             accepted_purls=load_accepted_purls(str(accepted)))
+        assert cassette.play_count == 3
+    assert get_cdx(bom.components[0], "Sw360SourceFileCheck") == "passed"
+    assert "manually accepted" in capsys.readouterr().out
 
 
 @vcr_test("base.yaml")
