@@ -29,7 +29,8 @@ SPDX-License-Identifier: MIT
 * capywfa: new `--accepted-sources FILE` option takes a JSON list of
   `{"purl": ..., "comment": ...}` objects. Source attachments listed there are
   marked as verified even if they differ from the local source, e.g. after a
-  manual check found them equivalent.
+  manual check found them equivalent. The summary lists the full PURL of each
+  unverified item, including qualifiers, so it can be copied into this file.
 
 ## 0.12.1
 

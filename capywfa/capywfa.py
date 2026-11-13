@@ -615,7 +615,7 @@ def main():
             """))
         print("BOM items with attachment differences:")
         for item in todo_unchecked:
-            print("-", item.name, item.version,
+            print("-", item.purl,
                   args.url + "/group/guest/components/-/component/release/"
                   "detailRelease/"
                   + get_cdx(item, "Sw360Id")+"#/tab-Attachments")
