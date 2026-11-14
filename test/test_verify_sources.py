@@ -163,6 +163,38 @@ def test_verify_sources_accepted_purl(capsys, tmp_path):
     assert "manually accepted" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("n_sources, expected", [(2, "passed"), (0, "multiple-sources")])
+def test_verify_sources_accepted_purl_attachment_count(tmp_path, monkeypatch, n_sources, expected):
+    """Accepted purl wins over multiple source attachments, but needs at least one."""
+    class FakeSW360:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def login_api(self):
+            pass
+
+        def get_release(self, _):
+            return {"_embedded": {"sw360:attachments": [
+                {"attachmentType": "SOURCE", "_links": {"self": {"href": f"attachments/{i}"}}}
+                for i in range(n_sources)]}}
+
+        def get_attachment_by_url(self, href):
+            return {"filename": "x.zip", "checkStatus": "NEW", "sha1": "0",
+                    "_links": {"self": {"href": href}}}
+
+        def get_id_from_href(self, href):
+            return href.rsplit("/", 1)[-1]
+
+    monkeypatch.setattr("capywfa.verify_sources.SW360", FakeSW360)
+    accepted = tmp_path / "accepted.json"
+    accepted.write_text(json.dumps(
+        [{"purl": "pkg:deb/debian/efibootguard@0.13+cip.debian?arch=source", "comment": "x"}]))
+    bom = create_test_bom()
+    verify_sources(bom, "https://sw360.example.com", "mytoken", [],
+                   accepted_purls=load_accepted_purls(str(accepted)))
+    assert get_cdx(bom.components[0], "Sw360SourceFileCheck") == expected
+
+
 @vcr_test("base.yaml")
 def test_verify_sources_no_source(capsys):
     bom = create_test_bom()

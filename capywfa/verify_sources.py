@@ -180,6 +180,12 @@ def verify_sources(bom, sw360_url, sw360_token, trusted_verifiers,
             if info.get("checkStatus", "") != "REJECTED":
                 sources.append(info)
 
+        # matched by purl only, so a re-uploaded attachment stays accepted
+        if sources and str(item.purl) in accepted_purls:
+            set_cdx(item, "Sw360SourceFileCheck", "passed")
+            print("OK: manually accepted (see --accepted-sources)")
+            continue
+
         if len(sources) != 1:
             print("ERROR:", len(sources), "sources found")
             set_cdx(item, "Sw360SourceFileCheck", "multiple-sources")
@@ -201,12 +207,6 @@ def verify_sources(bom, sw360_url, sw360_token, trusted_verifiers,
             set_cdx(item, "Sw360SourceFileCheck", "passed")
             print("OK: Trusted verifier", checkedby,
                   "approved on", sources[0].get('checkedOn'))
-            continue
-
-        # matched by purl only, so a re-uploaded attachment stays accepted
-        if str(item.purl) in accepted_purls:
-            set_cdx(item, "Sw360SourceFileCheck", "passed")
-            print("OK: manually accepted (see --accepted-sources)")
             continue
 
         if get_cdx(item, "SourceFileDownload") == "failed":
