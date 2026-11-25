@@ -3,8 +3,10 @@
 #
 # SPDX-License-Identifier: MIT
 
-from capywfa.capywfa import pass3_download_sources
+from capywfa.capywfa import pass3_download_sources, pass4_create_releases, pass6_link_releases
 from capywfa.cdx_support import get_cdx, set_cdx
+from capycli.bom.create_components import BomCreateComponents
+from capycli.project.create_project import CreateProject
 from capycli.common.map_result import MapResult
 from capycli.common.capycli_bom_support import CaPyCliBom
 from cyclonedx.model.bom import Bom
@@ -73,3 +75,40 @@ def test_pass3_sources_downloaded_still_missing_gets_failed():
     bom, missing = pass3_download_sources(bom, "", "", sources_downloaded=True)
     assert get_cdx(bom.components[0], "SourceFileDownload") == "failed"
     assert missing == []
+
+
+def test_read_only_pass4_never_calls_create_items(monkeypatch, capsys):
+    def fake_login(self, **kwargs):
+        self.client = None
+        return True
+
+    def no_writes(self, bom):
+        raise AssertionError("create_items called in read-only mode")
+
+    monkeypatch.setattr(BomCreateComponents, "login", fake_login)
+    monkeypatch.setattr(BomCreateComponents, "create_items", no_writes)
+    bom = make_bom(make_component(map_result=MapResult.NO_MATCH, source_check=""))
+    pass4_create_releases(bom, "https://sw360.example.com", "token", "", read_only=True)
+    assert "would create or update: pkg 1.0" in capsys.readouterr().out
+
+
+def test_read_only_pass6_never_updates_project(monkeypatch, tmp_path, capsys):
+    class FakeClient:
+        def get_project(self, project_id):
+            return {"name": "demo", "version": "1"}
+
+    def fake_login(self, **kwargs):
+        self.client = FakeClient()
+        return True
+
+    def no_writes(self, *args, **kwargs):
+        raise AssertionError("update_project called in read-only mode")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(CreateProject, "login", fake_login)
+    monkeypatch.setattr(CreateProject, "update_project", no_writes)
+    comp = make_component(map_result=MapResult.FULL_MATCH_BY_ID, source_check="passed")
+    set_cdx(comp, "Sw360Id", "release-1")
+    pass6_link_releases(make_bom(comp), "https://sw360.example.com", "token", "123", None,
+                        read_only=True)
+    assert "would link: pkg 1.0" in capsys.readouterr().out

@@ -173,7 +173,7 @@ def pass3_download_sources(bom, sbom_dir, pkg_dir, sources_downloaded=False):
 
 
 def pass4_create_releases(bom, sw360_url, sw360_token, pkg_dir,
-                          only_releases=True):
+                          only_releases=True, read_only=False):
     # note that BomCreateComponents will modify bom!
     creator = BomCreateComponents(onlyCreateReleases=only_releases)
     creator.relaxed_debian_parsing = True
@@ -197,6 +197,11 @@ def pass4_create_releases(bom, sw360_url, sw360_token, pkg_dir,
             and get_cdx(item, "Categories")
             and CycloneDxSupport.get_ext_ref_website(item)
             and item.description]
+
+    if read_only:
+        for item in todo_bom.components:
+            print("  would create or update:", item.name, item.version, f"({item.purl})")
+        return creator.client, todo_bom
 
     try:
         creator.create_items(todo_bom)
@@ -236,7 +241,8 @@ def pass4_update_bom(bom, todo_bom, what):
     return bom
 
 
-def pass6_link_releases(bom, sw360_url, sw360_token, project_id, minus_id):
+def pass6_link_releases(bom, sw360_url, sw360_token, project_id, minus_id,
+                        read_only=False):
     linker = CreateProject(onlyUpdateProject=True)
     linker.login(token=sw360_token, url=sw360_url,
                  oauth2=(len(sw360_token) > 100))
@@ -271,7 +277,11 @@ def pass6_link_releases(bom, sw360_url, sw360_token, project_id, minus_id):
         filename = "project-backup-"+project_id+".json"
         write_json_to_file(project, filename)
         print("-> saved project backup to", filename)
-        linker.update_project(project_id, project, todo_bom, project_info={})
+        if read_only:
+            for item in todo_bom.components:
+                print("  would link:", item.name, item.version)
+        else:
+            linker.update_project(project_id, project, todo_bom, project_info={})
     else:
         print("WARNING: no target project given, not linking anything.")
     return todo_bom
@@ -339,6 +349,11 @@ def main():
             Avoids triggering moderation requests; the source is still marked
             as verified locally."""))
     parser.add_argument(
+        "--read-only", action="store_true", help=textwrap.dedent(
+            """Don't write anything to SW360. Reads still run; creating
+            components and releases, uploading sources, setting checkStatus
+            and linking releases to the project are only printed."""))
+    parser.add_argument(
         "--max-diff-lines", type=int, default=MAX_DIFF_LINES, metavar="N",
         help=f"Maximum unified diff lines to show (0 disables diffs; default: {MAX_DIFF_LINES})")
     parser.add_argument(
@@ -390,6 +405,9 @@ def main():
         print("ERROR: empty BOM")
         sys.exit(1)
 
+    if args.read_only:
+        print("READ-ONLY: nothing is written to SW360, planned writes are printed.")
+        print()
     print(textwrap.dedent("""
         Upload will happen in six steps. The output is halted after each step,
         so you can check results and interrupt if you want to fix any issues.
@@ -444,7 +462,7 @@ def main():
                              trusted_verifiers=args.trusted_verifiers,
                              sbom_dir=None, pkg_dir=None,
                              max_diff_lines=args.max_diff_lines,
-                             set_accepted=not args.no_set_accepted,
+                             set_accepted=not (args.no_set_accepted or args.read_only),
                              verified_sources=verified_sources)
         write_bom(bom, filename+"-2-sourceverify-quick"+extension)
 
@@ -477,7 +495,8 @@ def main():
     confirm("Press ENTER to continue or CTRL-C to interrupt.")
 
     _, p4_bom = pass4_create_releases(bom, args.url, args.token,
-                                      args.sources, only_releases=True)
+                                      args.sources, only_releases=True,
+                                      read_only=args.read_only)
 
     # read previous bom and merge creation results into it
     bom = CaPyCliBom.read_sbom(outputbom)
@@ -490,7 +509,8 @@ def main():
 
     sw360_client, p4_bom = pass4_create_releases(bom, args.url, args.token,
                                                  args.sources,
-                                                 only_releases=False)
+                                                 only_releases=False,
+                                                 read_only=args.read_only)
     # read previous bom and merge creation results into it
     bom = CaPyCliBom.read_sbom(outputbom)
     bom = pass4_update_bom(bom, p4_bom, "component")
@@ -523,7 +543,7 @@ def main():
                                  sbom_dir=sbom_dir, pkg_dir=args.sources,
                                  trusted_verifiers=args.trusted_verifiers,
                                  max_diff_lines=args.max_diff_lines,
-                                 set_accepted=not args.no_set_accepted,
+                                 set_accepted=not (args.no_set_accepted or args.read_only),
                                  verified_sources=verified_sources)
             outputbom = write_bom(bom, filename+"-5-sourceverify"+extension)
 
@@ -545,18 +565,23 @@ def main():
     else:
         confirm("Press ENTER to continue or CTRL-C to interrupt.")
         linked_bom = pass6_link_releases(bom, args.url, args.token,
-                                         args.id, args.minus_id)
+                                         args.id, args.minus_id,
+                                         read_only=args.read_only)
         write_bom(linked_bom, filename+"-6-linked"+extension, check_length=False)
         # restore full bom as pass6 will modify bom
         bom = CaPyCliBom.read_sbom(outputbom)
         print()
     if args.id is not None:
         print(len(linked_bom.components),
-              "releases ready and linked to project.")
+              "releases would be linked to project." if args.read_only
+              else "releases ready and linked to project.")
 
     print()
     print("== Summary ==")
     print()
+    if args.read_only:
+        print("READ-ONLY: summary doesn't account for planned writes above.")
+        print()
 
     problem = False
     todo_unmapped = [item for item in bom.components
@@ -666,6 +691,8 @@ def main():
 
             """)+sys.argv[0]+' -i "'+outputbom+'" ...')
         sys.exit(81)
+    elif args.read_only:
+        print("Read-only run complete, nothing uploaded to SW360.")
     else:
         print("Congratulations, BOM completely uploaded to SW360!")
 

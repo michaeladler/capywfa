@@ -36,6 +36,10 @@ SPDX-License-Identifier: MIT
   a ready-to-paste `[[attachment]]` block per attachment of unverified items, so
   they can be copied into this file. The standalone `verify_sources` tool takes
   the same option.
+* capywfa: new `--read-only` option. Reads still run, but nothing is written to
+  SW360: creating components and releases, uploading sources, setting
+  checkStatus and linking releases to the project are only printed. Local BOM
+  files are still written.
 
 ## 0.12.1
 
