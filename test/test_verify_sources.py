@@ -243,7 +243,31 @@ def test_verify_sources_no_source(capsys):
     bom = create_test_bom()
     bom = verify_sources(bom, "https://sw360.example.com", "mytoken", [], pkg_dir="pkgs")
     captured = capsys.readouterr()
-    assert "no sources available" in captured.out
+    assert "no local sources" in captured.out
+
+
+def test_verify_sources_accepted_by_untrusted_verifier(capsys, monkeypatch):
+    class FakeSW360:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def login_api(self):
+            pass
+
+        def get_release(self, _):
+            return {"_embedded": {"sw360:attachments": [
+                {"attachmentType": "SOURCE", "_links": {"self": {"href": "attachments/1"}}}]}}
+
+        def get_attachment_by_url(self, href):
+            return {"filename": "x.zip", "checkStatus": "ACCEPTED", "checkedBy": "a@example.com",
+                    "sha1": "0", "_links": {"self": {"href": href}}}
+
+        def get_id_from_href(self, href):
+            return href.rsplit("/", 1)[-1]
+
+    monkeypatch.setattr("capywfa.verify_sources.SW360", FakeSW360)
+    verify_sources(create_test_bom(), "https://sw360.example.com", "mytoken", ["b@example.com"])
+    assert "accepted by a@example.com - not a trusted verifier" in capsys.readouterr().out
 
 
 def test_verify_sources_extract_match(capsys, verify):

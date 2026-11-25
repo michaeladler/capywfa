@@ -249,7 +249,10 @@ def verify_sources(bom, sw360_url, sw360_token, trusted_verifiers,
 
         source_ext_ref = CycloneDxSupport.get_ext_ref_source_file(item)
         if not source_ext_ref or (pkg_dir is None and sbom_dir is None):
-            print("WARNING: no sources available, skipping check")
+            if sources[0]['checkStatus'] == 'ACCEPTED':
+                print("INFO:", item.name, item.version, "accepted by", checkedby,
+                      "- not a trusted verifier (-vf)")
+            print("WARNING: no local sources, skipping content check")
             continue
 
         if sources[0]['sha1'] == CycloneDxSupport.get_source_file_hash(item):
